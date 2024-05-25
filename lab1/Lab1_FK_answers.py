@@ -31,17 +31,20 @@ def part1_calculate_T_pose(bvh_file_path):
         joint_name顺序应该和bvh一致
     """
     
-
+    # resotre the following items as the same order as the bvh file
     joint_name = []
     joint_parent = []
     joint_offset = []
 
+    # build a stack to follow dfs order
     stack = [-1]
+    # initial index as -1, so the root father is -1
     index = -1
     with open(bvh_file_path, 'r') as f:
         lines = f.readlines()
         for i in range(len(lines)):
             line_i = lines[i].strip()
+            # go to the child
             if line_i.startswith('ROOT') or line_i.startswith('JOINT') or line_i.startswith('End Site'):
                 if line_i.startswith('End Site'):
                     joint_name.append(f'{joint_name[-1]}_end')                
@@ -50,10 +53,10 @@ def part1_calculate_T_pose(bvh_file_path):
                 joint_parent.append(stack[-1])
                 index += 1
                 stack.append(index)
-
+            # go back to the parent
             if line_i.startswith('}'):
                 stack.pop()
-
+            # get the data of the joint
             if line_i.startswith('OFFSET'):
                 joint_offset.append(np.array([float(x) for x in line_i.split()[1:]]))
 
@@ -81,14 +84,17 @@ def part2_forward_kinematics(joint_name, joint_parent, joint_offset, motion_data
     non_end_idx = 0
 
     for i in range(0, len(joint_name)):
+        # end site position = parent position
         if joint_name[i].endswith('_end'):
-            joint_positions[i, :] = joint_positions[joint_parent[i]] 
+            joint_positions[i, :] = joint_positions[joint_parent[i]]
+        # first is root
         elif joint_name[i].startswith('Root'):
             joint_positions[i, :] = motion_data[frame_id, 0:3]
             joint_orientations[i, :] = R.from_euler('XYZ', motion_data[frame_id, 3:6], degrees = True).as_quat()
         else:
             local_rotation = R.from_euler('XYZ', motion_data[frame_id, 6 + 3*non_end_idx : 9 + 3*non_end_idx], degrees = True).as_matrix()
             parent_rotation = R.from_quat(joint_orientations[joint_parent[i]]).as_matrix()
+            # 4 values of quaternion
             joint_orientations[i, :] = R.from_matrix(parent_rotation @ local_rotation).as_quat()
             joint_positions[i, :] = joint_positions[joint_parent[i]] + parent_rotation @  joint_offset[i]
             non_end_idx += 1
@@ -115,12 +121,13 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
     pre_end_A = np.zeros(len(T_joint_names), dtype=int)
     pre_end_cnt = 0
 
+    # how many end sites before each joint
     for i in range(len(A_joint_names)):
         if A_joint_names[i].endswith('_end'):
             pre_end_cnt += 1
             continue
         pre_end_A[i] = pre_end_cnt
-        
+    # get the index of T in A
     for i in range(len(T_joint_names)):
         index_T_in_A[i] = A_joint_names.index(T_joint_names[i])
 
@@ -131,9 +138,10 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
     for frame_i in range(A_data.shape[0]):
         non_end_idx = 0
         for joint_i in range(len(T_joint_names)):
+            # motion data dont require end sites
             if T_joint_names[joint_i].endswith('_end'):
                 continue
-
+        
             if T_joint_names[joint_i].startswith('Root'):
                 motion_data[frame_i, 0 : 6] = A_data[frame_i, 0 : 6]
             else:
@@ -144,6 +152,7 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
                 T_e = non_end_idx * 3 + 6
                 A_rotation_euler = A_data[frame_i, A_s : A_e]
 
+                # lShoulder and rShoulder need to rotate -45 and 45 to T pose
                 if T_joint_names[joint_i] == 'lShoulder':
                     A_roatation_matrix = R.from_euler('XYZ', A_rotation_euler, degrees=True).as_matrix()
                     T_rotation_matrix = A_roatation_matrix @ rotate_z_n45
