@@ -107,5 +107,56 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
         两个bvh的joint name顺序可能不一致哦(
         as_euler时也需要大写的XYZ
     """
-    motion_data = None
+    A_data=load_motion_data(A_pose_bvh_path) # (14269, 63)
+    T_joint_names, _, _=part1_calculate_T_pose(T_pose_bvh_path) # 25
+    A_joint_names, _, _=part1_calculate_T_pose(A_pose_bvh_path) # 25
+
+    index_T_in_A = np.zeros(len(T_joint_names), dtype=int)
+    pre_end_A = np.zeros(len(T_joint_names), dtype=int)
+    pre_end_cnt = 0
+
+    for i in range(len(A_joint_names)):
+        if A_joint_names[i].endswith('_end'):
+            pre_end_cnt += 1
+            continue
+        pre_end_A[i] = pre_end_cnt
+        
+    for i in range(len(T_joint_names)):
+        index_T_in_A[i] = A_joint_names.index(T_joint_names[i])
+
+    rotate_z_n45 = R.from_euler('XYZ', [0, 0, -45], degrees=True).as_matrix()
+    rotate_z_45 = R.from_euler('XYZ', [0, 0, 45], degrees=True).as_matrix()
+
+    motion_data = np.zeros(A_data.shape)
+    for frame_i in range(A_data.shape[0]):
+        non_end_idx = 0
+        for joint_i in range(len(T_joint_names)):
+            if T_joint_names[joint_i].endswith('_end'):
+                continue
+
+            if T_joint_names[joint_i].startswith('Root'):
+                motion_data[frame_i, 0 : 6] = A_data[frame_i, 0 : 6]
+            else:
+                start_A_data_index = (index_T_in_A[joint_i] - pre_end_A[index_T_in_A[joint_i]]) * 3 + 3 
+                A_s = start_A_data_index
+                A_e = start_A_data_index + 3
+                T_s = non_end_idx * 3 + 3
+                T_e = non_end_idx * 3 + 6
+                A_rotation_euler = A_data[frame_i, A_s : A_e]
+
+                if T_joint_names[joint_i] == 'lShoulder':
+                    A_roatation_matrix = R.from_euler('XYZ', A_rotation_euler, degrees=True).as_matrix()
+                    T_rotation_matrix = A_roatation_matrix @ rotate_z_n45
+                    T_rotation_euler = R.from_matrix(T_rotation_matrix).as_euler('XYZ', degrees=True)
+                elif T_joint_names[joint_i] == 'rShoulder':
+                    A_roatation_matrix = R.from_euler('XYZ', A_rotation_euler, degrees=True).as_matrix()
+                    T_rotation_matrix = A_roatation_matrix @ rotate_z_45
+                    T_rotation_euler = R.from_matrix(T_rotation_matrix).as_euler('XYZ', degrees=True)
+                else:
+                    T_rotation_euler = A_rotation_euler
+                
+                motion_data[frame_i, T_s : T_e] = T_rotation_euler
+            non_end_idx += 1
+
+
     return motion_data
